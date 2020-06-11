@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"go/build"
+	"golang.org/x/tools/go/packages"
 	"log"
 	"os"
 	"os/exec"
@@ -27,24 +27,26 @@ more of its dependacies have been modified`)
 }
 
 var (
-	packages      map[string]struct{}       // the packages to check for taint
-	changedDirs   map[string]struct{}       // the directories which contain modified files
-	cache         map[string]*build.Package // a map[>package name>]<build.Package> to skip repeat lookups
-	gitDirPtr     *string                   // the git directory to check for changes
-	commitFromPtr *string                   // the earliest commit to diff
-	commitToPtr   *string                   // the latest commit to diff
+	packagesList  map[string]struct{}          // the packages to check for taint
+	changedDirs   map[string]struct{}          // the directories which contain modified files
+	cache         map[string]*packages.Package // a map[>package name>]<build.Package> to skip repeat lookups
+	gitDirPtr     *string                      // the git directory to check for changes
+	commitFromPtr *string                      // the earliest commit to diff
+	commitToPtr   *string                      // the latest commit to diff
+	modDirectory  *string                      // the latest commit to diff
 )
 
 func init() {
-	cache = make(map[string]*build.Package)
+	cache = make(map[string]*packages.Package)
 	changedDirs = make(map[string]struct{})
-	packages = make(map[string]struct{})
+	packagesList = make(map[string]struct{})
 }
 
 func main() {
 	gitDirPtr = flag.String("dir", ".", "the git directory to check")
 	commitFromPtr = flag.String("from", "HEAD~1", "commit to take changes from")
 	commitToPtr = flag.String("to", "HEAD", "commit to take changes to")
+	modDirectory = flag.String("mod", "", "the optional modules vendor directory")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -68,14 +70,10 @@ func main() {
 
 	// for each package we want to get its full deps tree and see if it
 	// contains any elements from the changedDirs
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
 	output := make(map[string]struct{})
-	for k := range packages {
+	for k := range packagesList {
 		// get all the deps
-		deps, err := findDeps(k, cwd)
+		deps, err := findDeps(k)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -111,7 +109,7 @@ func hasChanges(deps []string) bool {
 func readPackages() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		packages[scanner.Text()] = struct{}{}
+		packagesList[scanner.Text()] = struct{}{}
 	}
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)

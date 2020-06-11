@@ -1,39 +1,59 @@
 package main
 
 import (
-	"go/build"
+	"fmt"
+	"golang.org/x/tools/go/packages"
 	"sort"
 )
 
 type context struct {
 	soFar map[string]struct{}
-	ctx   build.Context
 }
 
-func (c *context) find(name, dir string) (err error) {
+func isInPackages(id string) bool {
+	for pkg := range packagesList {
+		if pkg == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *context) find(name string) (err error) {
 	if name == "C" {
 		return nil
 	}
-	var pkg *build.Package
+	var pkg *packages.Package
 	pkg, ok := cache[name]
 	if !ok {
-		pkg, err = c.ctx.Import(name, dir, 0)
+		cfg := &packages.Config{
+			Mode: packages.NeedImports,
+		}
+		if modDirectory != nil && *modDirectory != "" {
+			cfg.BuildFlags = []string{fmt.Sprintf("-mod=%s", *modDirectory)}
+		}
+		pkgs, err := packages.Load(cfg, name)
 		if err != nil {
 			return err
 		}
+		if len(pkgs) != 1 {
+			return fmt.Errorf("expected 1 package but got %d", len(pkgs))
+		}
+		pkg = pkgs[0]
 	}
 	cache[name] = pkg
-	if pkg.Goroot {
+	if !isInPackages(pkg.ID) {
 		return nil
 	}
 
 	if name != "." {
-		c.soFar[pkg.ImportPath] = struct{}{}
+		c.soFar[pkg.ID] = struct{}{}
 	}
 	imports := pkg.Imports
+
 	for _, imp := range imports {
-		if _, ok := c.soFar[imp]; !ok {
-			if err := c.find(imp, pkg.Dir); err != nil {
+		if _, ok := c.soFar[imp.ID]; !ok {
+			if err := c.find(imp.ID); err != nil {
 				return err
 			}
 		}
@@ -41,14 +61,11 @@ func (c *context) find(name, dir string) (err error) {
 	return nil
 }
 
-func findDeps(name, dir string) ([]string, error) {
-	ctx := build.Default
-
+func findDeps(name string) ([]string, error) {
 	c := &context{
 		soFar: make(map[string]struct{}),
-		ctx:   ctx,
 	}
-	if err := c.find(name, dir); err != nil {
+	if err := c.find(name); err != nil {
 		return nil, err
 	}
 	deps := make([]string, 0, len(c.soFar))
