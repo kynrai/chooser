@@ -19,7 +19,7 @@ func usage() {
 Example:
 	go list ./... | tainted
 
-This program takes a lits of packages from stdin and returns a list of packages
+This program takes a list of packages from stdin and returns a list of packages
 which have beend tained and need to be rebuilt. A package is tained when one or
 more of its dependacies have been modified`)
 	fmt.Println()
@@ -27,12 +27,13 @@ more of its dependacies have been modified`)
 }
 
 var (
-	packages      map[string]struct{}       // the packages to check for taint
-	changedDirs   map[string]struct{}       // the directories which contain modified files
-	cache         map[string]*build.Package // a map[>package name>]<build.Package> to skip repeat lookups
-	gitDirPtr     *string                   // the git directory to check for changes
-	commitFromPtr *string                   // the earliest commit to diff
-	commitToPtr   *string                   // the latest commit to diff
+	packages         map[string]struct{}       // the packages to check for taint
+	changedDirs      map[string]struct{}       // the directories which contain modified files
+	cache            map[string]*build.Package // a map[>package name>]<build.Package> to skip repeat lookups
+	gitDirPtr        *string                   // the git directory to check for changes
+	commitFromPtr    *string                   // the earliest commit to diff
+	commitToPtr      *string                   // the latest commit to diff
+	includeTestFiles *bool                     // this will include test files for evaluation
 )
 
 func init() {
@@ -45,6 +46,7 @@ func main() {
 	gitDirPtr = flag.String("dir", ".", "the git directory to check")
 	commitFromPtr = flag.String("from", "HEAD~1", "commit to take changes from")
 	commitToPtr = flag.String("to", "HEAD", "commit to take changes to")
+	includeTestFiles = flag.Bool("test", false, "include test files")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -120,14 +122,31 @@ func readPackages() {
 
 // modified will use git to find out which folders have been changed
 func modified() {
-	cmdArgs := []string{
-		"--no-pager",
-		"-C",
-		*gitDirPtr,
-		"diff",
-		"--name-only",
-		*commitFromPtr,
-		*commitToPtr,
+
+	var cmdArgs []string
+	switch *includeTestFiles {
+	case true:
+		cmdArgs = []string{
+			"--no-pager",
+			"-C",
+			*gitDirPtr,
+			"diff",
+			"--name-only",
+			*commitFromPtr,
+			*commitToPtr,
+		}
+	default:
+		cmdArgs = []string{
+			"--no-pager",
+			"-C",
+			*gitDirPtr,
+			"diff",
+			"--",
+			`":!*_test.go"`,
+			"--name-only",
+			*commitFromPtr,
+			*commitToPtr,
+		}
 	}
 
 	cmd := exec.Command("git", cmdArgs...)
