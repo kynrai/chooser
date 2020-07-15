@@ -122,31 +122,14 @@ func readPackages() {
 
 // modified will use git to find out which folders have been changed
 func modified() {
-
-	var cmdArgs []string
-	switch *includeTestFiles {
-	case true:
-		cmdArgs = []string{
-			"--no-pager",
-			"-C",
-			*gitDirPtr,
-			"diff",
-			"--name-only",
-			*commitFromPtr,
-			*commitToPtr,
-		}
-	default:
-		cmdArgs = []string{
-			"--no-pager",
-			"-C",
-			*gitDirPtr,
-			"diff",
-			"--",
-			`":!*_test.go"`,
-			"--name-only",
-			*commitFromPtr,
-			*commitToPtr,
-		}
+	cmdArgs := []string{
+		"--no-pager",
+		"-C",
+		*gitDirPtr,
+		"diff",
+		"--name-only",
+		*commitFromPtr,
+		*commitToPtr,
 	}
 
 	cmd := exec.Command("git", cmdArgs...)
@@ -158,7 +141,12 @@ func modified() {
 	scanner := bufio.NewScanner(cmdReader)
 	go func() {
 		for scanner.Scan() {
-			if dir := filepath.Dir(scanner.Text()); dir != "." {
+			scanned := scanner.Text()
+			if !*includeTestFiles && strings.Contains(scanned, "_test.go") {
+				continue
+			}
+
+			if dir := filepath.Dir(scanned); dir != "." {
 				changedDirs[dir] = struct{}{}
 			}
 		}
